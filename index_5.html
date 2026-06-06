@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>🌍 GeoExplorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --h-hdr: 48px;
+  --h-toolbar: 44px;
+  --navy: #0f172a;
+  --navy2: #1e293b;
+  --accent: #3b82f6;
+  --accent2: #8b5cf6;
+  --green: #22c55e;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --sub: #64748b;
+  --muted: #94a3b8;
+  --panel-h-mobile: 46vh;
+}
+html { height: 100%; }
+body {
+  height: 100%;
+  font-family: 'Nunito', sans-serif;
+  background: #0f172a;
+  color: var(--text);
+  /* NO overflow:hidden on body – kills mobile touch */
+  display: flex;
+  flex-direction: column;
+  position: fixed;   /* fix to viewport so map doesn't scroll */
+  inset: 0;
+  overflow: hidden;
+}
+
+/* ══════════════════════════════════════
+   INTRO OVERLAY
+══════════════════════════════════════ */
+#intro {
+  position: fixed; inset: 0; z-index: 9000;
+  background: linear-gradient(135deg, #0f172a, #1e1b4b, #0f172a);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+  transition: opacity .4s;
+}
+#intro.hidden { opacity: 0; pointer-events: none; }
+
+.ic {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 20px;
+  width: 100%; max-width: 520px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px rgba(0,0,0,.6);
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 32px);
+}
+.ic-slides-wrap { overflow: hidden; flex-shrink: 0; }
+.ic-slides {
+  display: flex;
+  transition: transform .38s cubic-bezier(.4,0,.2,1);
+}
+.ic-slide {
+  min-width: 100%;
+  padding: 28px 24px 20px;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+.ic-slide h2 {
+  font-family: 'Fredoka One', cursive;
+  font-size: clamp(1.3rem, 4vw, 1.8rem);
+  color: #fff; text-align: center; margin-bottom: 8px;
+}
+.ic-slide .ie { font-size: clamp(2rem, 7vw, 3rem); text-align: center; display: block; margin-bottom: 10px; }
+.ic-slide p { color: rgba(255,255,255,.72); font-size: .88rem; line-height: 1.6; text-align: center; margin-bottom: 14px; }
+.ic-steps { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.ic-steps li {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: rgba(255,255,255,.06); border-radius: 10px; padding: 9px 12px;
+  color: rgba(255,255,255,.85); font-size: .84rem; font-weight: 700; line-height: 1.4;
+}
+.ic-steps li .si { font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+.ic-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255,255,255,.1);
+  background: rgba(0,0,0,.2);
+  flex-shrink: 0;
+}
+.ic-dots { display: flex; gap: 6px; }
+.ic-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.25); transition: background .2s, transform .2s; }
+.ic-dot.on { background: #3b82f6; transform: scale(1.3); }
+.ic-nav { display: flex; gap: 7px; }
+.ib {
+  border: none; border-radius: 8px; padding: 8px 16px;
+  font-family: 'Nunito', sans-serif; font-weight: 800; font-size: .83rem;
+  cursor: pointer; transition: transform .1s;
+}
+.ib:active { transform: scale(.96); }
+.ib.prev { background: rgba(255,255,255,.12); color: #fff; }
+.ib.nxt  { background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; }
+.ib.go   { background: linear-gradient(135deg,#22c55e,#16a34a); color: #fff; font-size: .95rem; padding: 9px 22px; }
+
+/* ══════════════════════════════════════
+   HEADER
+══════════════════════════════════════ */
+#hdr {
+  height: var(--h-hdr);
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 12px;
+  flex-shrink: 0; z-index: 50;
+}
+.hlogo {
+  font-family: 'Fredoka One', cursive; font-size: 1.2rem; color: #fff;
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.hglobe { display: inline-block; animation: spin 12s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hbadge {
+  background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 20px; padding: 3px 10px;
+  font-size: .75rem; font-weight: 700; color: rgba(255,255,255,.85); white-space: nowrap;
+}
+.hbadge b { color: #fbbf24; }
+.hright { margin-left: auto; display: flex; gap: 6px; }
+.hbtn {
+  background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 8px; padding: 5px 10px; cursor: pointer;
+  font-family: 'Nunito', sans-serif; font-weight: 700; font-size: .73rem;
+  color: rgba(255,255,255,.82); white-space: nowrap;
+}
+.hbtn.quiz-on { background: linear-gradient(135deg,#f59e0b,#ef4444); border-color: transparent; color: #fff; }
+
+/* ══════════════════════════════════════
+   TOOLBAR (scrollable on mobile)
+══════════════════════════════════════ */
+#toolbar {
+  height: var(--h-toolbar);
+  background: #1e293b;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 10px;
+  overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+#toolbar::-webkit-scrollbar { display: none; }
+.tl { font-size: .68rem; font-weight: 800; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); white-space: nowrap; }
+.cs {
+  width: 22px; height: 22px; border-radius: 50%; cursor: pointer; flex-shrink: 0;
+  border: 2.5px solid transparent;
+  transition: transform .12s, border-color .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.cs:active, .cs.on { transform: scale(1.3); border-color: #fff; box-shadow: 0 0 0 2px rgba(255,255,255,.35); }
+.tdiv { width: 1px; height: 22px; background: rgba(255,255,255,.12); flex-shrink: 0; }
+.tbtn {
+  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 7px; padding: 4px 9px; cursor: pointer;
+  font-family: 'Nunito', sans-serif; font-weight: 700; font-size: .72rem;
+  color: rgba(255,255,255,.8); white-space: nowrap; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tbtn:active { background: rgba(255,255,255,.2); }
+.vtog { display: flex; background: rgba(0,0,0,.3); border-radius: 7px; overflow: hidden; border: 1px solid rgba(255,255,255,.1); flex-shrink: 0; }
+.vopt { padding: 4px 9px; font-size: .72rem; font-weight: 700; cursor: pointer; color: rgba(255,255,255,.45); white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+.vopt.on { background: rgba(59,130,246,.4); color: #93c5fd; }
+
+/* ══════════════════════════════════════
+   MAIN (map + panel stacked vertically on mobile)
+══════════════════════════════════════ */
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;   /* MOBILE: stacked */
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* ── MAP ── */
+#mapwrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: radial-gradient(ellipse 80% 80% at 50% 50%, #1a3a6a 0%, #0a1a3a 60%, #050e20 100%);
+  min-height: 0;
+  touch-action: none;   /* CRITICAL: lets D3 zoom handle all touch */
+}
+#mapwrap svg {
+  width: 100%; height: 100%; display: block;
+  touch-action: none;
+}
+
+/* country paths */
+.land {
+  stroke: rgba(255,255,255,.32);
+  stroke-width: .35;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.land:hover { stroke: #fbbf24; stroke-width: .9; }
+.land.sel { stroke: #f97316; stroke-width: 2; filter: drop-shadow(0 0 6px rgba(249,115,22,.8)); }
+.land.qglow { animation: qgl .55s ease-in-out infinite alternate; }
+@keyframes qgl {
+  from { filter: brightness(1.6) drop-shadow(0 0 10px rgba(251,191,36,1)); }
+  to   { filter: brightness(.8) drop-shadow(0 0 16px rgba(239,68,68,1)); }
+}
+.graticule { fill: none; stroke: rgba(255,255,255,.05); stroke-width: .35; }
+.cborder { fill: none; stroke: rgba(255,255,255,.18); stroke-width: .55; }
+
+/* map overlays */
+#tip {
+  position: fixed; background: rgba(15,23,42,.94); color: #fff;
+  padding: 4px 11px; border-radius: 10px; font-size: .78rem; font-weight: 700;
+  pointer-events: none; display: none; white-space: nowrap;
+  border: 1px solid rgba(255,255,255,.15); z-index: 300;
+}
+#cont-btns {
+  position: absolute; top: 10px; left: 10px;
+  display: flex; flex-direction: column; gap: 4px; z-index: 40;
+}
+.cbtn {
+  background: rgba(10,20,40,.82); border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px; padding: 4px 10px; cursor: pointer;
+  font-size: .68rem; font-weight: 700; color: rgba(255,255,255,.78);
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.cbtn:active { background: rgba(59,130,246,.35); }
+#zoom-btns {
+  position: absolute; bottom: 14px; right: 12px;
+  display: flex; flex-direction: column; gap: 6px; z-index: 40;
+}
+.zbtn {
+  width: 38px; height: 38px;
+  background: rgba(20,35,60,.9); border: 1px solid rgba(255,255,255,.15);
+  border-radius: 50%; color: #fff; font-weight: 900; font-size: 1.1rem;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,.35);
+  -webkit-tap-highlight-color: transparent;
+}
+.zbtn:active { background: rgba(59,130,246,.45); }
+
+/* loading */
+#loading {
+  position: absolute; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: radial-gradient(ellipse at center, #1a3a6a, #050e20);
+}
+.lg { font-size: 3.5rem; animation: spin 2s linear infinite; }
+#loading h3 { font-family: 'Fredoka One', cursive; font-size: 1.4rem; color: #fff; }
+#loading p  { color: rgba(255,255,255,.55); font-size: .85rem; }
+.lbar { width: 180px; height: 6px; background: rgba(255,255,255,.15); border-radius: 3px; overflow: hidden; }
+.lfill { height: 100%; background: linear-gradient(90deg,#3b82f6,#8b5cf6); border-radius: 3px; animation: lf 2s ease-in-out infinite; }
+@keyframes lf { 0%{width:0%} 55%{width:80%} 100%{width:100%} }
+
+/* ══════════════════════════════════════
+   BOTTOM PANEL (slide-up sheet on mobile)
+══════════════════════════════════════ */
+#panel {
+  background: #fff;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  flex-shrink: 0;
+  height: var(--panel-h-mobile);
+  overflow: hidden;
+  /* subtle shadow */
+  box-shadow: 0 -4px 20px rgba(0,0,0,.15);
+}
+
+.ph {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  padding: 10px 14px 8px; flex-shrink: 0;
+  display: flex; align-items: center; gap: 10px;
+}
+/* drag handle for mobile */
+.ph::before {
+  display: none; /* shown via media query */
+}
+.pf { font-size: 1.8rem; line-height: 1; }
+.pn { font-family: 'Fredoka One', cursive; font-size: 1.1rem; color: #fff; }
+.ps { font-size: .72rem; color: rgba(255,255,255,.6); margin-top: 1px; }
+
+/* search */
+#srch-wrap {
+  display: flex; gap: 6px; padding: 7px 12px;
+  background: #f8fafc; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+#srch {
+  flex: 1; padding: 5px 9px; border: 1px solid var(--border); border-radius: 7px;
+  font-family: 'Nunito', sans-serif; font-size: .82rem; font-weight: 600;
+  outline: none; color: var(--text);
+}
+#srch:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.15); }
+.sbtn {
+  background: var(--accent); color: #fff; border: none; border-radius: 7px;
+  padding: 0 12px; cursor: pointer; font-family: 'Nunito', sans-serif;
+  font-weight: 700; font-size: .78rem;
+}
+
+/* tabs */
+.ptabs {
+  display: none; /* shown when country selected */
+  border-bottom: 1px solid var(--border); background: #fff; flex-shrink: 0;
+}
+.ptab {
+  flex: 1; padding: 7px 2px; text-align: center;
+  font-size: .68rem; font-weight: 800; cursor: pointer;
+  color: var(--sub); border-bottom: 2px solid transparent;
+  text-transform: uppercase; letter-spacing: .4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.ptab.on { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* stats row */
+.sbar {
+  display: none; /* shown when country selected */
+  background: #fff; border-bottom: 1px solid var(--border); padding: 8px 12px; gap: 6px; flex-shrink: 0;
+}
+.sc { flex: 1; text-align: center; background: #f8fafc; border-radius: 8px; padding: 5px 2px; }
+.sn { font-family: 'Fredoka One', cursive; font-size: 1.05rem; color: var(--accent); }
+.sl { font-size: .6rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+
+/* panel body – scrollable */
+.pb {
+  flex: 1; overflow-y: auto; overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: #f8fafc;
+}
+.pb::-webkit-scrollbar { width: 4px; }
+.pb::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+/* welcome */
+#welcome {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 16px 16px 10px; gap: 9px; text-align: center;
+}
+.wg { font-size: 2.8rem; animation: wb 1.3s ease-in-out infinite alternate; }
+@keyframes wb { from{transform:translateY(0)} to{transform:translateY(-8px)} }
+#welcome h3 { font-family: 'Fredoka One', cursive; font-size: 1.15rem; color: var(--text); }
+#welcome p  { font-size: .8rem; color: var(--sub); line-height: 1.5; }
+.tip-chip {
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 9px;
+  padding: 6px 10px; font-size: .76rem; font-weight: 700; color: #1d4ed8;
+  width: 100%; text-align: left; display: flex; gap: 6px;
+}
+
+/* info cards */
+.isec { padding: 10px 12px; border-bottom: 1px solid var(--border); background: #fff; }
+.stitle {
+  font-size: .65rem; font-weight: 800; text-transform: uppercase; letter-spacing: .7px;
+  color: var(--muted); margin-bottom: 7px; display: flex; align-items: center; gap: 5px;
+}
+.stitle::after { content:''; flex:1; height:1px; background:var(--border); }
+.irow { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.iico { font-size: 1.15rem; flex-shrink: 0; margin-top: 1px; }
+.ilbl { font-size: .63rem; font-weight: 800; text-transform: uppercase; color: var(--muted); letter-spacing: .5px; }
+.ival { font-size: .84rem; font-weight: 700; color: var(--text); line-height: 1.35; margin-top: 1px; }
+.fact-card {
+  background: linear-gradient(135deg,#eff6ff,#f5f3ff);
+  border: 1px solid #c7d2fe; border-radius: 10px;
+  padding: 10px 12px; margin: 8px 12px;
+}
+.fc-lbl { font-size: .62rem; font-weight: 800; text-transform: uppercase; color: #6366f1; letter-spacing: .5px; margin-bottom: 3px; }
+.fc-txt { font-size: .82rem; font-weight: 700; color: #1e1b4b; line-height: 1.45; }
+.pop-wrap { padding: 8px 12px; }
+.pop-lbl { display: flex; justify-content: space-between; font-size: .72rem; font-weight: 700; color: var(--sub); margin-bottom: 4px; }
+.pop-bg { height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden; }
+.pop-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg,#3b82f6,#8b5cf6); transition: width .8s; }
+
+/* landmarks */
+.lm-list { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px; }
+.lm-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 9px;
+  padding: 8px 10px; display: flex; align-items: flex-start; gap: 8px;
+}
+.lm-n { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; font-size: .65rem; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+.lm-name { font-size: .82rem; font-weight: 700; color: var(--text); }
+.lm-type { font-size: .67rem; color: var(--sub); margin-top: 1px; }
+.lm-desc { font-size: .75rem; color: var(--sub); margin-top: 3px; line-height: 1.4; }
+
+/* states */
+.st-list { display: flex; flex-direction: column; gap: 5px; padding: 8px 12px; }
+.st-row {
+  background: #fff; border: 1px solid var(--border); border-radius: 8px;
+  padding: 7px 9px; display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.st-row:active { background: #eff6ff; }
+.st-row.painted { border-left: 3px solid var(--accent); }
+.stn { font-size: .8rem; font-weight: 700; color: var(--text); }
+.stp { font-size: .68rem; color: var(--sub); margin-top: 1px; }
+.stbar { height: 3px; background: #e2e8f0; border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.stbar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg,#3b82f6,#8b5cf6); }
+.st-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; border: 1.5px solid rgba(0,0,0,.1); }
+
+/* quiz */
+#qpanel { padding: 12px; display: flex; flex-direction: column; gap: 9px; }
+.qs { display: flex; gap: 6px; }
+.qst { flex:1; background:#f8fafc; border:1px solid var(--border); border-radius:9px; padding:7px; text-align:center; }
+.qst .qn { font-family:'Fredoka One',cursive; font-size:1.15rem; }
+.qst .ql { font-size:.62rem; font-weight:700; text-transform:uppercase; color:var(--muted); }
+.qst.ok{background:#f0fdf4;border-color:#bbf7d0}.qst.ok .qn{color:#16a34a}
+.qst.bad{background:#fff1f2;border-color:#fecdd3}.qst.bad .qn{color:#dc2626}
+.qbox { background:linear-gradient(135deg,#1e293b,#0f172a);color:#fff;border-radius:12px;padding:14px;text-align:center;line-height:1.4; }
+.qfl { font-size:2.4rem; display:block; margin-bottom:6px; }
+.qnm { font-family:'Fredoka One',cursive; font-size:1.2rem; display:block; }
+.qhi { font-size:.76rem; opacity:.7; margin-top:4px; }
+.qres { text-align:center;padding:9px;border-radius:9px;font-weight:800;font-size:.88rem;display:none; }
+.qres.ok{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;display:block}
+.qres.bad{background:#fff1f2;color:#dc2626;border:1px solid #fecdd3;display:block}
+.qskip { background:#f8fafc;border:2px dashed var(--border);border-radius:8px;padding:8px;width:100%;font-family:'Nunito',sans-serif;font-weight:700;font-size:.8rem;cursor:pointer;color:var(--sub); }
+
+/* stars */
+.star { position:fixed;font-size:1.3rem;pointer-events:none;z-index:8000;animation:sp 1s ease-out forwards; }
+@keyframes sp{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(.15);opacity:0}}
+
+/* ══ DESKTOP OVERRIDE ══ */
+@media (min-width: 700px) {
+  #main { flex-direction: row; }
+  #mapwrap { flex: 1; }
+  #panel {
+    width: 300px; height: auto;
+    border-top: none; border-left: 1px solid var(--border);
+    box-shadow: none;
+  }
+  #cont-btns { display: flex; }
+  .sbar { display: flex; }
+}
+@media (max-width: 699px) {
+  #cont-btns { display: none; }
+  .ptabs { display: flex !important; } /* always show tabs on mobile when active */
+}
+</style>
+</head>
+<body>
+
+<!-- ══ INTRO ══ -->
+<div id="intro">
+  <div class="ic">
+    <div class="ic-slides-wrap">
+      <div class="ic-slides" id="slides">
+
+        <div class="ic-slide">
+          <span class="ie">🌍</span>
+          <h2>Welcome to GeoExplorer!</h2>
+          <p>Explore every country, paint the map, discover amazing facts, and test your geography knowledge!</p>
+          <ul class="ic-steps">
+            <li><span class="si">🗺️</span><div>Real world map with <b>every country</b></div></li>
+            <li><span class="si">🎨</span><div>Paint countries and states with <b>any colour</b></div></li>
+            <li><span class="si">📚</span><div>Tap any country for <b>capitals, landmarks & facts</b></div></li>
+            <li><span class="si">🧩</span><div><b>Quiz Mode</b> — can you find every country?</div></li>
+          </ul>
+        </div>
+
+        <div class="ic-slide">
+          <span class="ie">🔭</span>
+          <h2>Navigating the Map</h2>
+          <ul class="ic-steps">
+            <li><span class="si">👆</span><div><b>Tap</b> any country to select it and see info below</div></li>
+            <li><span class="si">🤏</span><div><b>Pinch</b> with two fingers to zoom in and out</div></li>
+            <li><span class="si">✌️</span><div><b>Two-finger drag</b> to pan around the map</div></li>
+            <li><span class="si">🌍</span><div>Tap <b>+ and −</b> buttons to zoom precisely</div></li>
+            <li><span class="si">🔍</span><div>Use the <b>search bar</b> to jump to any country</div></li>
+          </ul>
+        </div>
+
+        <div class="ic-slide">
+          <span class="ie">🎨</span>
+          <h2>Painting the Map</h2>
+          <ul class="ic-steps">
+            <li><span class="si">🎨</span><div>Pick a colour from the <b>scrollable toolbar</b> above</div></li>
+            <li><span class="si">👆</span><div><b>Tap a country</b> to paint it that colour</div></li>
+            <li><span class="si">🗺️</span><div>Switch to <b>States</b> mode in the toolbar to paint individual regions!</div></li>
+            <li><span class="si">🌍</span><div>Hit <b>Auto Continents</b> to colour the whole world at once</div></li>
+          </ul>
+        </div>
+
+        <div class="ic-slide">
+          <span class="ie">📚</span>
+          <h2>Exploring Countries</h2>
+          <ul class="ic-steps">
+            <li><span class="si">👆</span><div>Tap any country — facts appear in the <b>panel below</b></div></li>
+            <li><span class="si">📋</span><div><b>Info tab</b>: capital, population, currency, fun fact</div></li>
+            <li><span class="si">📸</span><div><b>Landmarks tab</b>: famous places with descriptions</div></li>
+            <li><span class="si">🗺️</span><div><b>States tab</b>: every region with population data</div></li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+    <div class="ic-foot">
+      <div class="ic-dots">
+        <div class="ic-dot on"></div><div class="ic-dot"></div>
+        <div class="ic-dot"></div><div class="ic-dot"></div>
+      </div>
+      <div class="ic-nav">
+        <button class="ib prev" id="iprev" onclick="iNav(-1)" style="display:none">← Back</button>
+        <button class="ib nxt"  id="inxt"  onclick="iNav(1)">Next →</button>
+        <button class="ib go"   id="igo"   onclick="startApp()" style="display:none">🚀 Let's Go!</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="hdr">
+  <div class="hlogo"><span class="hglobe">🌍</span> GeoExplorer</div>
+  <div class="hbadge">🌟 <b id="vc">0</b> visited</div>
+  <div class="hright">
+    <button class="hbtn" onclick="showIntro()">❓</button>
+    <button class="hbtn" id="qbtn" onclick="toggleQuiz()">🧩 Quiz</button>
+  </div>
+</div>
+
+<div id="toolbar">
+  <span class="tl">🎨</span>
+  <button class="cs on"  style="background:#86efac" data-c="#86efac"></button>
+  <button class="cs"     style="background:#fde68a" data-c="#fde68a"></button>
+  <button class="cs"     style="background:#fca5a5" data-c="#fca5a5"></button>
+  <button class="cs"     style="background:#93c5fd" data-c="#93c5fd"></button>
+  <button class="cs"     style="background:#d8b4fe" data-c="#d8b4fe"></button>
+  <button class="cs"     style="background:#fdba74" data-c="#fdba74"></button>
+  <button class="cs"     style="background:#67e8f9" data-c="#67e8f9"></button>
+  <button class="cs"     style="background:#f9a8d4" data-c="#f9a8d4"></button>
+  <button class="cs"     style="background:#a7f3d0" data-c="#a7f3d0"></button>
+  <button class="cs"     style="background:#fef08a" data-c="#fef08a"></button>
+  <div class="tdiv"></div>
+  <span class="tl">Paint:</span>
+  <div class="vtog">
+    <div class="vopt on" id="vc-country" onclick="setMode('country')">Countries</div>
+    <div class="vopt"    id="vc-state"   onclick="setMode('state')">States</div>
+  </div>
+  <div class="tdiv"></div>
+  <button class="tbtn" onclick="autoColor()">🌍 Auto Continents</button>
+  <button class="tbtn" onclick="clearAll()">🗑️ Clear</button>
+</div>
+
+<div id="main">
+  <div id="mapwrap">
+    <div id="loading">
+      <div class="lg">🌍</div>
+      <h3>Loading the World…</h3>
+      <p>Fetching country borders 🛰️</p>
+      <div class="lbar"><div class="lfill"></div></div>
+    </div>
+    <svg id="msvg">
+      <defs>
+        <radialGradient id="og" cx="50%" cy="45%" r="65%">
+          <stop offset="0%"   stop-color="#1e4080"/>
+          <stop offset="100%" stop-color="#050e20"/>
+        </radialGradient>
+      </defs>
+    </svg>
+    <div id="tip"></div>
+    <div id="cont-btns">
+      <button class="cbtn" onclick="fly(17,-5,2.2)">🌍 Africa</button>
+      <button class="cbtn" onclick="fly(-80,10,1.9)">🌎 Americas</button>
+      <button class="cbtn" onclick="fly(90,30,1.7)">🌏 Asia</button>
+      <button class="cbtn" onclick="fly(15,52,3.2)">🏰 Europe</button>
+      <button class="cbtn" onclick="fly(135,-25,2.3)">🦘 Oceania</button>
+      <button class="cbtn" onclick="resetV()">🔭 World</button>
+    </div>
+    <div id="zoom-btns">
+      <button class="zbtn" onclick="dz(1.4)">+</button>
+      <button class="zbtn" onclick="dz(0.72)">−</button>
+      <button class="zbtn" onclick="resetV()" style="font-size:.75rem">⟳</button>
+    </div>
+  </div>
+
+  <div id="panel">
+    <div class="ph">
+      <div class="pf" id="pf">🌍</div>
+      <div><div class="pn" id="pn">GeoExplorer</div><div class="ps" id="ps">Tap any country!</div></div>
+    </div>
+    <div id="srch-wrap">
+      <input id="srch" type="text" placeholder="🔍 Search countries…" oninput="doSearch(this.value)">
+      <button class="sbtn" onclick="doSearch(document.getElementById('srch').value)">Go</button>
+    </div>
+    <div class="sbar" id="sbar">
+      <div class="sc"><div class="sn" id="sr">—</div><div class="sl">Pop Rank</div></div>
+      <div class="sc"><div class="sn" id="sa">—</div><div class="sl">Area km²</div></div>
+      <div class="sc"><div class="sn" id="sd">—</div><div class="sl">Per km²</div></div>
+    </div>
+    <div class="ptabs" id="ptabs">
+      <div class="ptab on" id="t-info"  onclick="tab('info')">📋 Info</div>
+      <div class="ptab"    id="t-lm"    onclick="tab('lm')">📸 Landmarks</div>
+      <div class="ptab"    id="t-st"    onclick="tab('st')">🗺️ States</div>
+    </div>
+    <div class="pb" id="pb">
+      <div id="welcome">
+        <div class="wg">🗺️</div>
+        <h3>Tap any country!</h3>
+        <p>Discover amazing facts about every nation on Earth!</p>
+        <div class="tip-chip">🎨 Scroll the toolbar to pick a colour, then tap to paint!</div>
+        <div class="tip-chip">🤏 Pinch the map to zoom in on any region</div>
+        <div class="tip-chip">🧩 Try Quiz Mode — find every country!</div>
+      </div>
+      <div id="ci" style="display:none"></div>
+      <div id="cl" style="display:none"></div>
+      <div id="cs-tab" style="display:none"></div>
+      <div id="qpanel" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════
+//  COUNTRY DATA
+// ═══════════════════════════════════
+const DB = {
+"036":{name:"Australia",flag:"🇦🇺",capital:"Canberra",pop:26e6,area:7692024,cont:"Oceania",currency:"AUD",lang:"English",popRank:54,
+  lm:[{n:"Sydney Opera House",t:"UNESCO Icon",d:"The world-famous sail-shaped concert hall, visited by 11 million people each year"},{n:"Uluru (Ayers Rock)",t:"Sacred Monolith",d:"A 348m sandstone rock sacred to Aboriginal Anangu people — it glows deep red at sunset"},{n:"Great Barrier Reef",t:"UNESCO Marine Wonder",d:"The world's largest coral reef system — 2,300 km long and visible from space"},{n:"Kakadu National Park",t:"UNESCO Wilderness",d:"Ancient Aboriginal rock art dating back 20,000 years in tropical wetlands"},{n:"Bondi Beach",t:"Iconic Beach",d:"Australia's most famous beach in Sydney — surfers, swimmers and beach culture since the 1800s"}],
+  fact:"Australia has more unique animal species than any other continent — kangaroos outnumber people 2:1! 🦘",
+  st:[{n:"New South Wales",p:8.2e6},{n:"Victoria",p:6.7e6},{n:"Queensland",p:5.3e6},{n:"Western Australia",p:2.8e6},{n:"South Australia",p:1.8e6},{n:"Tasmania",p:570e3},{n:"ACT",p:460e3},{n:"Northern Territory",p:250e3}]},
+
+"076":{name:"Brazil",flag:"🇧🇷",capital:"Brasília",pop:215e6,area:8515767,cont:"South America",currency:"Brazilian Real",lang:"Portuguese",popRank:7,
+  lm:[{n:"Christ the Redeemer",t:"UNESCO Statue",d:"A 38m statue of Christ with open arms overlooking Rio from Corcovado mountain"},{n:"Amazon Rainforest",t:"Natural Wonder",d:"The world's largest rainforest — covers 5.5 million km² and holds 10% of all species on Earth"},{n:"Iguazu Falls",t:"Natural Wonder",d:"A spectacular curtain of 275 waterfalls spanning 2.7 km wide — wider than Niagara!"},{n:"Carnival Rio de Janeiro",t:"World Festival",d:"The world's biggest festival — 5 days, 2 million people daily, samba schools, giant floats"},{n:"Pantanal Wetlands",t:"UNESCO Wildlife",d:"The world's largest tropical wetland — the best place on Earth to spot wild jaguars!"}],
+  fact:"The Amazon River carries more water than the next seven largest rivers on Earth combined! One fifth of all Earth's fresh water! 🌴",
+  st:[{n:"São Paulo",p:46e6},{n:"Minas Gerais",p:21e6},{n:"Rio de Janeiro",p:17e6},{n:"Bahia",p:15e6},{n:"Paraná",p:11e6},{n:"Rio Grande do Sul",p:11e6},{n:"Pernambuco",p:9.6e6},{n:"Ceará",p:9.2e6}]},
+
+"124":{name:"Canada",flag:"🇨🇦",capital:"Ottawa",pop:38e6,area:9984670,cont:"North America",currency:"Canadian Dollar",lang:"English & French",popRank:39,
+  lm:[{n:"Niagara Falls",t:"Natural Wonder",d:"Three waterfalls on the US-Canada border — 168,000 m³ of water flowing per minute!"},{n:"Banff National Park",t:"National Park",d:"Turquoise glacial lakes, towering Rocky Mountain peaks and abundant wildlife"},{n:"CN Tower",t:"Skyscraper",d:"Toronto's iconic 553m tower — for 32 years it was the tallest free-standing structure on Earth"},{n:"Northern Lights (Aurora Borealis)",t:"Natural Phenomenon",d:"Yukon and Northwest Territories are among the world's best spots for aurora viewing"},{n:"Bay of Fundy",t:"Natural Wonder",d:"Home to the world's highest tides — the water rises and falls 16 metres twice a day!"}],
+  fact:"Canada has more lakes than every other country in the world combined — over 2 million lakes! 🍁",
+  st:[{n:"Ontario",p:14.8e6},{n:"Quebec",p:8.6e6},{n:"British Columbia",p:5.2e6},{n:"Alberta",p:4.4e6},{n:"Manitoba",p:1.4e6},{n:"Saskatchewan",p:1.2e6},{n:"Nova Scotia",p:970e3},{n:"New Brunswick",p:780e3}]},
+
+"156":{name:"China",flag:"🇨🇳",capital:"Beijing",pop:1400e6,area:9596960,cont:"Asia",currency:"Yuan (¥)",lang:"Mandarin",popRank:1,
+  lm:[{n:"Great Wall of China",t:"UNESCO World Wonder",d:"A 21,196 km fortification built over 2,000 years — the longest structure ever built by humans"},{n:"Forbidden City",t:"UNESCO Palace",d:"The world's largest palace complex — 980 buildings where 24 emperors lived for 500 years"},{n:"Terracotta Army",t:"Archaeological Wonder",d:"8,000 life-sized clay soldiers buried with Emperor Qin Shi Huang 2,200 years ago"},{n:"Li River Karst Mountains",t:"Natural Wonder",d:"Limestone peaks rising from emerald water — the scene printed on the 20 yuan note"},{n:"Yellow Mountains (Huangshan)",t:"UNESCO Heritage",d:"Granite peaks above clouds — inspired Chinese landscape painting for over 1,000 years"}],
+  fact:"China invented paper, printing, gunpowder AND the compass — four inventions that changed all of human history! 🐉",
+  st:[{n:"Guangdong",p:127e6},{n:"Shandong",p:102e6},{n:"Henan",p:99e6},{n:"Sichuan",p:84e6},{n:"Jiangsu",p:85e6},{n:"Hebei",p:75e6},{n:"Shanghai",p:25e6},{n:"Beijing",p:22e6}]},
+
+"250":{name:"France",flag:"🇫🇷",capital:"Paris",pop:68e6,area:551695,cont:"Europe",currency:"Euro (€)",lang:"French",popRank:22,
+  lm:[{n:"Eiffel Tower",t:"Iconic Landmark",d:"Gustave Eiffel's 330m iron tower, built for the 1889 World's Fair — 7 million visitors a year"},{n:"Louvre Museum",t:"World's Largest Museum",d:"480,000 works of art including the Mona Lisa — you'd need 9 years to see everything!"},{n:"Palace of Versailles",t:"UNESCO Palace",d:"The Sun King Louis XIV's palace with 2,300 rooms and the dazzling Hall of Mirrors"},{n:"Mont-Saint-Michel",t:"UNESCO Island",d:"A tidal island monastery that appears to float in the sea at high tide"},{n:"French Riviera",t:"Glamorous Coast",d:"The azure Mediterranean coast from Marseille to Monaco — playground of the world"}],
+  fact:"France is the most visited country on Earth — over 90 million tourists every year! That's more than the entire French population! 🗼",
+  st:[{n:"Île-de-France (Paris)",p:12.3e6},{n:"Auvergne-Rhône-Alpes",p:8.1e6},{n:"Hauts-de-France",p:6.0e6},{n:"Nouvelle-Aquitaine",p:6.1e6},{n:"Occitanie",p:5.9e6},{n:"Grand Est",p:5.6e6},{n:"Provence (French Riviera)",p:5.1e6},{n:"Bretagne",p:3.4e6}]},
+
+"276":{name:"Germany",flag:"🇩🇪",capital:"Berlin",pop:84e6,area:357114,cont:"Europe",currency:"Euro (€)",lang:"German",popRank:19,
+  lm:[{n:"Brandenburg Gate",t:"Historic Monument",d:"An 18th-century gate that once divided East and West Berlin — now a symbol of unity"},{n:"Neuschwanstein Castle",t:"Fairy-tale Castle",d:"Ludwig II's fantasy castle that directly inspired Sleeping Beauty's castle at Disneyland!"},{n:"Cologne Cathedral",t:"UNESCO Cathedral",d:"A Gothic masterpiece that took 632 years to build — started 1248, finished 1880!"},{n:"Black Forest",t:"Enchanted Forest",d:"The dark pine forest that inspired many Brothers Grimm fairy tales, including Hansel & Gretel"},{n:"Oktoberfest",t:"World Festival",d:"The planet's biggest beer festival in Munich — 6 million visitors over two weeks every autumn"}],
+  fact:"Germany's Neuschwanstein Castle directly inspired Walt Disney's Sleeping Beauty Castle — Disney visited it himself! 🏰",
+  st:[{n:"North Rhine-Westphalia",p:18.1e6},{n:"Bavaria",p:13.2e6},{n:"Baden-Württemberg",p:11.1e6},{n:"Lower Saxony",p:8.0e6},{n:"Hesse",p:6.3e6},{n:"Berlin",p:3.7e6},{n:"Saxony",p:4.1e6},{n:"Rhineland-Palatinate",p:4.1e6}]},
+
+"356":{name:"India",flag:"🇮🇳",capital:"New Delhi",pop:1400e6,area:3287263,cont:"Asia",currency:"Rupee (₹)",lang:"Hindi & English + 20 others",popRank:2,
+  lm:[{n:"Taj Mahal",t:"UNESCO World Wonder",d:"White marble mausoleum built by Emperor Shah Jahan for his wife — took 22 years and 20,000 workers"},{n:"Red Fort, Delhi",t:"UNESCO Fortress",d:"A massive red sandstone fort from 1639 — where India declared independence in 1947"},{n:"Jaipur — The Pink City",t:"UNESCO City",d:"An entire city painted dusty pink in 1876 to welcome a royal visit — the architecture is breathtaking"},{n:"Kerala Backwaters",t:"Natural Wonder",d:"900 km of canals, lakes and lagoons cruised by traditional houseboat rice barges"},{n:"Varanasi Ghats",t:"Sacred Site",d:"The world's oldest living city — pilgrims have bathed in the holy Ganges here for 3,000 years"}],
+  fact:"India has over 1,600 languages spoken within its borders — making it the world's most linguistically diverse large country! 🗳️",
+  st:[{n:"Uttar Pradesh",p:232e6},{n:"Maharashtra",p:128e6},{n:"Bihar",p:128e6},{n:"West Bengal",p:99e6},{n:"Madhya Pradesh",p:86e6},{n:"Tamil Nadu",p:78e6},{n:"Rajasthan",p:81e6},{n:"Delhi",p:32e6}]},
+
+"380":{name:"Italy",flag:"🇮🇹",capital:"Rome",pop:60e6,area:301340,cont:"Europe",currency:"Euro (€)",lang:"Italian",popRank:25,
+  lm:[{n:"Colosseum, Rome",t:"UNESCO Amphitheatre",d:"A 50,000-seat arena built in 80 AD — the largest amphitheatre ever built, still standing 2,000 years later"},{n:"Leaning Tower of Pisa",t:"UNESCO Monument",d:"An 8-storey bell tower that started leaning during construction in 1173 — took 200 years to build"},{n:"Vatican City",t:"World's Smallest Country",d:"An independent country within Rome — home to St Peter's Basilica and Michelangelo's Sistine Chapel"},{n:"Venice & the Grand Canal",t:"UNESCO Island City",d:"A city of 118 islands connected by 150 canals — no cars, only boats and gondolas!"},{n:"Amalfi Coast",t:"UNESCO Coastline",d:"Dramatic cliffs plunging into turquoise water, with colourful villages clinging to the rocks"}],
+  fact:"Italy has more UNESCO World Heritage Sites than any other country on Earth — 58 sites! And it's where pizza, pasta and cappuccino were born! 🏛️",
+  st:[{n:"Lombardy (Milan)",p:10.1e6},{n:"Lazio (Rome)",p:5.9e6},{n:"Campania (Naples)",p:5.7e6},{n:"Sicily",p:5.0e6},{n:"Veneto (Venice)",p:4.9e6},{n:"Emilia-Romagna",p:4.5e6},{n:"Tuscany (Florence)",p:3.7e6},{n:"Piedmont",p:4.3e6}]},
+
+"392":{name:"Japan",flag:"🇯🇵",capital:"Tokyo",pop:124e6,area:377915,cont:"Asia",currency:"Yen (¥)",lang:"Japanese",popRank:11,
+  lm:[{n:"Mount Fuji",t:"UNESCO Sacred Peak",d:"Japan's iconic 3,776m volcano — a perfectly symmetrical cone, sacred and painted for centuries"},{n:"Fushimi Inari Shrine",t:"Shinto Shrine",d:"A hillside covered in thousands of vivid orange torii gates in Kyoto — absolutely magical at dawn"},{n:"Hiroshima Peace Memorial",t:"UNESCO Symbol",d:"The preserved ruins directly below the 1945 atomic bomb — now a powerful symbol of world peace"},{n:"Nara Deer Park",t:"Nature Attraction",d:"Ancient temples where 1,200 wild deer roam freely — they bow when you offer them crackers!"},{n:"Tokyo Skytree",t:"World's Tallest Tower",d:"At 634m, the tallest tower in the world — on a clear day you can see Mount Fuji from the top!"}],
+  fact:"Japan has more vending machines per person than any country on Earth — one for every 25 people, selling hot coffee, umbrellas and even fresh eggs! 🗾",
+  st:[{n:"Tokyo",p:13.9e6},{n:"Kanagawa",p:9.2e6},{n:"Osaka",p:8.8e6},{n:"Aichi",p:7.5e6},{n:"Saitama",p:7.3e6},{n:"Chiba",p:6.3e6},{n:"Hyogo (Kobe)",p:5.5e6},{n:"Hokkaido",p:5.2e6}]},
+
+"484":{name:"Mexico",flag:"🇲🇽",capital:"Mexico City",pop:130e6,area:1964375,cont:"North America",currency:"Mexican Peso",lang:"Spanish",popRank:10,
+  lm:[{n:"Chichen Itza",t:"UNESCO World Wonder",d:"A 30m Mayan pyramid — on each spring and autumn equinox, a shadow snake appears to slither down its steps!"},{n:"Teotihuacan",t:"Archaeological City",d:"Ancient city with the Pyramid of the Sun — the 3rd largest pyramid on Earth, 2,000 years old"},{n:"Copper Canyon",t:"Natural Wonder",d:"A canyon system BIGGER and DEEPER than the Grand Canyon — 6 connected canyons in the Sierra Madre"},{n:"Cenotes of Yucatán",t:"Underwater Wonders",d:"Sacred underground swimming holes carved by collapsed limestone — crystal clear turquoise water"},{n:"Palenque",t:"Mayan Ruins",d:"A jungle-covered Mayan city with incredible carved temples hidden in the Chiapas rainforest"}],
+  fact:"Mexico invented chocolate — the ancient Aztecs made a sacred drink called 'xocolatl' from cacao beans 3,000 years before Cadbury! 🍫",
+  st:[{n:"Mexico State",p:17.4e6},{n:"Mexico City",p:9.2e6},{n:"Jalisco",p:8.3e6},{n:"Veracruz",p:8.1e6},{n:"Puebla",p:6.6e6},{n:"Guanajuato",p:6.2e6},{n:"Chiapas",p:5.5e6},{n:"Nuevo León",p:5.7e6}]},
+
+"566":{name:"Nigeria",flag:"🇳🇬",capital:"Abuja",pop:218e6,area:923768,cont:"Africa",currency:"Naira",lang:"English + 500 local languages",popRank:6,
+  lm:[{n:"Zuma Rock",t:"Natural Monument",d:"A 725m granite monolith rising from the plains near Abuja — featured on old Nigerian banknotes"},{n:"Yankari National Park",t:"Wildlife Reserve",d:"West Africa's largest wildlife park with elephants, lions, hippos and the magical warm Wikki Spring"},{n:"Osun-Osogbo Sacred Grove",t:"UNESCO Heritage",d:"A sacred forest full of sculptures and shrines to Osun, Yoruba goddess of the river"},{n:"Lagos Island",t:"Megacity",d:"The heart of Africa's largest city — 15 million people in a chaotic, vibrant, creative metropolis"}],
+  fact:"Nigeria has over 500 languages spoken within its borders — more than any other African country. One in every five Africans is Nigerian! 🦅",
+  st:[{n:"Lagos",p:24e6},{n:"Kano",p:15e6},{n:"Oyo",p:8.5e6},{n:"Rivers",p:7.5e6},{n:"Kaduna",p:9.3e6},{n:"Katsina",p:8.8e6},{n:"Ogun",p:6.1e6},{n:"Anambra",p:5.5e6}]},
+
+"604":{name:"Peru",flag:"🇵🇪",capital:"Lima",pop:33e6,area:1285216,cont:"South America",currency:"Sol",lang:"Spanish & Quechua",popRank:45,
+  lm:[{n:"Machu Picchu",t:"UNESCO World Wonder",d:"An Incan city at 2,430m in the clouds — built in the 1400s without mortar and never found by Spanish conquistadors"},{n:"Nazca Lines",t:"UNESCO Mystery",d:"Giant geoglyphs of animals etched into the desert — a hummingbird, spider, monkey — only visible from the air"},{n:"Lake Titicaca",t:"Natural Wonder",d:"The world's highest navigable lake at 3,812m — the Uros people live on floating islands made of reeds"},{n:"Colca Canyon",t:"Natural Wonder",d:"One of the world's deepest canyons — twice as deep as the Grand Canyon. Condors soar above it"},{n:"Amazon Jungle, Madre de Dios",t:"Rainforest",d:"The most biodiverse patch of Earth — one hectare can contain more tree species than all of Europe"}],
+  fact:"Machu Picchu was built without a single nail, screw or drop of mortar — the stones fit so perfectly that nothing can be inserted between them! 🏔️",
+  st:[{n:"Lima Region",p:11.5e6},{n:"Piura",p:2.1e6},{n:"La Libertad",p:2.0e6},{n:"Cajamarca",p:1.5e6},{n:"Cusco",p:1.3e6},{n:"Arequipa",p:1.5e6},{n:"Junín",p:1.4e6},{n:"Puno",p:1.4e6}]},
+
+"643":{name:"Russia",flag:"🇷🇺",capital:"Moscow",pop:144e6,area:17098242,cont:"Europe & Asia",currency:"Ruble",lang:"Russian",popRank:9,
+  lm:[{n:"Red Square & St. Basil's",t:"UNESCO Wonder",d:"The magical onion-domed cathedral and Kremlin fortress walls in the heart of Moscow"},{n:"Lake Baikal",t:"UNESCO Natural Wonder",d:"The world's deepest lake at 1,642m — holds 20% of all Earth's unfrozen fresh water"},{n:"Trans-Siberian Railway",t:"Engineering Marvel",d:"The world's longest railway at 9,289 km — a 7-day journey crossing 8 time zones"},{n:"Hermitage Museum",t:"World Museum",d:"One of the world's great art museums — 3 million items across 5 connected palaces in St Petersburg"},{n:"Kamchatka Volcanoes",t:"UNESCO Wilderness",d:"29 active volcanoes, geysers and 20,000 brown bears on a remote peninsula"}],
+  fact:"Russia is so enormous it has 11 time zones — when Muscovites sit down for breakfast, people in Vladivostok are already going to sleep! 🌏",
+  st:[{n:"Moscow City",p:12.5e6},{n:"Moscow Oblast",p:7.7e6},{n:"Krasnodar Krai",p:5.7e6},{n:"Saint Petersburg",p:5.4e6},{n:"Sverdlovsk Oblast",p:4.3e6},{n:"Rostov Oblast",p:4.2e6}]},
+
+"724":{name:"Spain",flag:"🇪🇸",capital:"Madrid",pop:47e6,area:505990,cont:"Europe",currency:"Euro (€)",lang:"Spanish",popRank:31,
+  lm:[{n:"Sagrada Família",t:"UNESCO Basilica",d:"Gaudí's extraordinary unfinished cathedral — started 1882, still being built. Due to finish 2026!"},{n:"Alhambra, Granada",t:"UNESCO Palace",d:"A Moorish palace of intricate geometry, fountains and reflecting pools — a masterpiece of Islamic architecture"},{n:"Park Güell",t:"UNESCO Park",d:"Gaudí's mosaic wonderland with colourful ceramic lizards and curving benches high above Barcelona"},{n:"La Tomatina Festival",t:"World's Messiest Festival",d:"20,000 people throw 145,000 kg of tomatoes at each other every August in Buñol — the world's biggest food fight!"},{n:"Camino de Santiago",t:"UNESCO Pilgrimage",d:"An ancient 800km walking pilgrimage route ending at Santiago Cathedral in Galicia"}],
+  fact:"Spain has the most UNESCO World Heritage Sites in the world AND invented the modern novel — Don Quixote in 1605 — AND flamenco dancing! 🎨",
+  st:[{n:"Andalusia",p:8.5e6},{n:"Catalonia (Barcelona)",p:7.7e6},{n:"Madrid",p:6.8e6},{n:"Valencia",p:5.1e6},{n:"Galicia",p:2.7e6},{n:"Basque Country",p:2.2e6},{n:"Castile & León",p:2.4e6},{n:"Castilla-La Mancha",p:2.0e6}]},
+
+"826":{name:"United Kingdom",flag:"🇬🇧",capital:"London",pop:67e6,area:242495,cont:"Europe",currency:"Pound Sterling (£)",lang:"English",popRank:21,
+  lm:[{n:"Big Ben & Houses of Parliament",t:"UNESCO Icon",d:"The 96m Gothic clock tower on the Thames — technically 'Big Ben' is just the bell inside the tower"},{n:"Stonehenge",t:"UNESCO Mystery",d:"Prehistoric standing stones up to 4m tall and 4,500 years old — no one knows exactly how they were built"},{n:"Edinburgh Castle",t:"Historic Fortress",d:"A 1,000-year-old castle on a volcanic rock — home to the Scottish Crown Jewels and the Stone of Destiny"},{n:"Tower of London",t:"UNESCO Fortress",d:"A Norman fortress housing the Crown Jewels, 6 resident ravens and 1,000 years of royal drama"},{n:"Lake District",t:"UNESCO National Park",d:"Glacial lakes and dramatic fells that inspired Wordsworth's poetry and Beatrix Potter's Peter Rabbit"}],
+  fact:"The UK invented the World Wide Web, the steam engine, the jet engine, television, the telephone AND association football — and gave the world Shakespeare, Newton and Darwin! ⚙️",
+  st:[{n:"England",p:56.5e6},{n:"Scotland",p:5.5e6},{n:"Wales",p:3.2e6},{n:"Northern Ireland",p:1.9e6},{n:"Greater London",p:9.0e6},{n:"West Midlands",p:2.9e6},{n:"Greater Manchester",p:2.8e6},{n:"West Yorkshire",p:2.3e6}]},
+
+"840":{name:"United States",flag:"🇺🇸",capital:"Washington D.C.",pop:335e6,area:9833517,cont:"North America",currency:"US Dollar ($)",lang:"English",popRank:3,
+  lm:[{n:"Statue of Liberty",t:"UNESCO Icon",d:"France's gift to America in 1886 — 93m tall. She has a 0.8m nose, size 879 sandals and 354 steps to the crown!"},{n:"Grand Canyon",t:"Natural Wonder",d:"A mile-deep gorge carved by the Colorado River over 6 million years — 446km long, 29km wide"},{n:"Yellowstone National Park",t:"National Park",d:"The world's first national park — 500 geysers, Old Faithful erupts every 90 minutes, on a giant volcanic hotspot"},{n:"Golden Gate Bridge",t:"Engineering Marvel",d:"San Francisco's iconic 1,280m suspension bridge — it took 4 years, 11 lives and 83,000 tonnes of steel to build"},{n:"New York City",t:"World City",d:"8.3 million people from every country on Earth — the city that inspired a million movies, songs and dreams"}],
+  fact:"The US has sent 12 humans to walk on the Moon, invented the internet, GPS, smartphones AND has the world's largest economy! 🚀",
+  st:[{n:"California",p:39.5e6},{n:"Texas",p:30.5e6},{n:"Florida",p:22.6e6},{n:"New York",p:20.2e6},{n:"Pennsylvania",p:13.0e6},{n:"Illinois",p:12.6e6},{n:"Ohio",p:11.8e6},{n:"Georgia",p:11.0e6}]},
+
+"704":{name:"Vietnam",flag:"🇻🇳",capital:"Hanoi",pop:98e6,area:331212,cont:"Asia",currency:"Đồng",lang:"Vietnamese",popRank:15,
+  lm:[{n:"Ha Long Bay",t:"UNESCO Natural Wonder",d:"3,000 limestone islands jutting from emerald waters — cruise between them in a traditional wooden junk boat"},{n:"Hội An Ancient Town",t:"UNESCO Heritage",d:"A preserved merchant port from the 1400s–1800s — lit by hundreds of silk lanterns at night"},{n:"Sơn Đoòng Cave",t:"World's Largest Cave",d:"The world's largest cave — 9km long, its own jungle, its own clouds, its own weather system — discovered 2009!"},{n:"Mỹ Sơn Hindu Sanctuary",t:"UNESCO Ruins",d:"Ancient Hindu temples of the Cham civilisation — South East Asia's forgotten empire, 200+ years of building"},{n:"Old Quarter Hanoi",t:"Historic District",d:"A 1,000-year-old city of 36 ancient streets, each originally selling one product — silk, paper, tin, silver"}],
+  fact:"Vietnam's Sơn Đoòng is so large it has its own jungle, clouds and weather inside — large enough to contain a New York City block! 🌿",
+  st:[{n:"Ho Chi Minh City",p:9.3e6},{n:"Hanoi",p:8.0e6},{n:"Binh Duong",p:2.6e6},{n:"Dong Nai",p:3.2e6},{n:"Haiphong",p:2.1e6},{n:"An Giang",p:1.9e6}]},
+};
+
+const MXPOP = 1400e6;
+
+// ═══════════════════════════════════
+//  INTRO
+// ═══════════════════════════════════
+let iPage = 0;
+const NPAGES = 4;
+function iNav(d) {
+  iPage = Math.max(0, Math.min(NPAGES-1, iPage+d));
+  document.getElementById('slides').style.transform = `translateX(-${iPage*100}%)`;
+  document.querySelectorAll('.ic-dot').forEach((el,i) => el.classList.toggle('on', i===iPage));
+  document.getElementById('iprev').style.display = iPage>0 ? '' : 'none';
+  document.getElementById('inxt').style.display  = iPage<NPAGES-1 ? '' : 'none';
+  document.getElementById('igo').style.display   = iPage===NPAGES-1 ? '' : 'none';
+}
+function startApp() {
+  document.getElementById('intro').classList.add('hidden');
+}
+function showIntro() {
+  iPage=0; iNav(0);
+  document.getElementById('intro').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════
+//  MAP
+// ═══════════════════════════════════
+const mwrap = document.getElementById('mapwrap');
+let W = mwrap.clientWidth, H = mwrap.clientHeight;
+
+const proj = d3.geoNaturalEarth1().scale(W/6.3).translate([W/2, H/2]);
+const gp   = d3.geoPath().projection(proj);
+const svg  = d3.select('#msvg');
+const g    = svg.append('g');
+
+// Zoom — CRITICAL mobile config
+const zb = d3.zoom()
+  .scaleExtent([0.8, 25])
+  .on('zoom', e => g.attr('transform', e.transform));
+
+svg.call(zb)
+   .on('dblclick.zoom', null);  // disable double-tap zoom (conflicts with tap-to-select)
+
+// Sphere + graticule
+const grat = d3.geoGraticule();
+g.append('path').datum({type:'Sphere'}).attr('fill','url(#og)').attr('d', gp);
+g.append('path').datum(grat()).attr('class','graticule').attr('d', gp);
+
+// State
+let pColor = '#86efac';
+let cColors = {}, sColors = {};
+let selId = null;
+let pMode = 'country';
+let visited = new Set(), painted = new Set();
+let qMode = false, qTarget = null, qScore = {ok:0,bad:0};
+let cEls = {};
+let curId = null;
+
+// Load
+fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json')
+  .then(r => r.json())
+  .then(world => {
+    const feats = topojson.feature(world, world.objects.countries).features;
+    const borders = topojson.mesh(world, world.objects.countries, (a,b) => a!==b);
+
+    g.selectAll('.land')
+     .data(feats).enter().append('path')
+     .attr('class','land')
+     .attr('d', gp)
+     .attr('fill', d => cColors[pid(d.id)] || defFill(pid(d.id)))
+     .attr('data-id', d => pid(d.id))
+     .on('mouseenter', (e,d) => { const c=DB[pid(d.id)]; showTip(e, c?`${c.flag} ${c.name}`:pid(d.id)); })
+     .on('mousemove', moveTip)
+     .on('mouseleave', hideTip)
+     .on('click', function(e,d) {
+       e.stopPropagation();
+       const id = pid(d.id);
+       onCountryClick(id, e.clientX||e.pageX, e.clientY||e.pageY, this);
+     });
+
+    g.append('path').datum(borders).attr('class','cborder').attr('d', gp);
+    g.selectAll('.land').each(function(d) { cEls[pid(d.id)] = this; });
+    document.getElementById('loading').style.display = 'none';
+    autoColor(false);
+  })
+  .catch(e => {
+    document.getElementById('loading').innerHTML=`<div style="font-size:3rem">😢</div><h3 style="color:#fff">Failed to load</h3><p style="color:rgba(255,255,255,.6)">Need internet connection.<br><small>${e.message}</small></p><button onclick="location.reload()" style="margin-top:12px;padding:10px 20px;background:#3b82f6;color:#fff;border:none;border-radius:9px;font-size:1rem;font-weight:700;cursor:pointer">Retry</button>`;
+  });
+
+function pid(id){ return String(id).padStart(3,'0'); }
+function defFill(id){
+  const c=DB[id];
+  if(!c) return '#3a4a5a';
+  const m={'Africa':'#8b7355','Asia':'#6b7e5a','Europe':'#4a6a8a','North America':'#7a6090','South America':'#7a8a5a','Oceania':'#5a8a7a','Caribbean':'#7a7050','Europe & Asia':'#4a6a8a'};
+  return m[c.cont]||'#4a5568';
+}
+
+// ═══════════════════════════════════
+//  INTERACTIONS
+// ═══════════════════════════════════
+function onCountryClick(id, cx, cy, el) {
+  if (qMode) { handleQuiz(id); return; }
+  // Paint
+  if (pMode === 'country') {
+    cColors[id] = pColor;
+    d3.select(el).attr('fill', pColor);
+    painted.add(id);
+  }
+  // Select
+  if (selId && cEls[selId]) d3.select(cEls[selId]).classed('sel', false);
+  selId = id; curId = id;
+  d3.select(el).classed('sel', true);
+  visited.add(id);
+  document.getElementById('vc').textContent = visited.size;
+  const c = DB[id];
+  if (c) showCountry(c, id);
+  stars(cx, cy, 4);
+}
+
+function showCountry(c, id) {
+  document.getElementById('welcome').style.display = 'none';
+  document.getElementById('qpanel').style.display  = 'none';
+  document.getElementById('pf').textContent = c.flag;
+  document.getElementById('pn').textContent = c.name;
+  document.getElementById('ps').textContent = `${c.cont} · ${c.capital}`;
+  const dens = Math.round(c.pop/c.area);
+  document.getElementById('sr').textContent = '#'+c.popRank;
+  document.getElementById('sa').textContent = fmt(c.area);
+  document.getElementById('sd').textContent = dens;
+  document.getElementById('sbar').style.display = 'flex';
+  document.getElementById('ptabs').style.display = 'flex';
+  tab('info');
+  buildInfo(c); buildLm(c); buildSt(c, id);
+}
+
+function fmt(n){
+  if(n>=1e9) return (n/1e9).toFixed(1)+'B';
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return Math.round(n/1e3)+'K';
+  return ''+n;
+}
+
+function buildInfo(c){
+  const pct = Math.max(1, Math.round(c.pop/MXPOP*100));
+  document.getElementById('ci').innerHTML=`
+    <div class="isec">
+      <div class="stitle">🌐 Key Facts</div>
+      <div class="irow"><div class="iico">🏛️</div><div><div class="ilbl">Capital</div><div class="ival">${c.capital}</div></div></div>
+      <div class="irow"><div class="iico">💰</div><div><div class="ilbl">Currency</div><div class="ival">${c.currency}</div></div></div>
+      <div class="irow"><div class="iico">💬</div><div><div class="ilbl">Language(s)</div><div class="ival">${c.lang}</div></div></div>
+      <div class="irow"><div class="iico">👥</div><div><div class="ilbl">Population</div><div class="ival"><b>${fmt(c.pop)}</b> people · #${c.popRank} globally</div></div></div>
+      <div class="irow"><div class="iico">📐</div><div><div class="ilbl">Area</div><div class="ival">${fmt(c.area)} km²</div></div></div>
+    </div>
+    <div class="pop-wrap">
+      <div class="pop-lbl"><span>Population (vs China/India)</span><span>${pct}%</span></div>
+      <div class="pop-bg"><div class="pop-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="fact-card">
+      <div class="fc-lbl">⭐ Cool Fact!</div>
+      <div class="fc-txt">${c.fact}</div>
+    </div>`;
+}
+
+function buildLm(c){
+  document.getElementById('cl').innerHTML=`
+    <div style="padding:8px 12px 4px;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)">Famous Places in ${c.name}</div>
+    <div class="lm-list">${c.lm.map((l,i)=>`
+      <div class="lm-card">
+        <div class="lm-n">${i+1}</div>
+        <div>
+          <div class="lm-name">${l.n}</div>
+          <div class="lm-type">${l.t}</div>
+          <div class="lm-desc">${l.d}</div>
+        </div>
+      </div>`).join('')}</div>`;
+}
+
+function buildSt(c, id){
+  const sorted = [...c.st].sort((a,b)=>b.p-a.p);
+  const tot = c.st.reduce((s,x)=>s+x.p,0);
+  document.getElementById('cs-tab').innerHTML=`
+    <div style="padding:8px 12px 4px;background:#fff;border-bottom:1px solid var(--border)">
+      <div style="font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)">Regions / States (${c.st.length})</div>
+      <div style="font-size:.73rem;color:var(--sub);margin-top:2px">Switch to <b>States</b> mode in toolbar to paint individually</div>
+    </div>
+    <div class="st-list">${sorted.map((st,i)=>{
+      const pct=Math.round(st.p/tot*100);
+      const key=`${id}:${i}`;
+      const col=sColors[key];
+      return `<div class="st-row ${col?'painted':''}" onclick="paintState('${id}',${i},'${st.n}',this)" style="${col?`border-left:3px solid ${col}`:''}">
+        <div style="flex:1">
+          <div class="stn">${st.n}</div>
+          <div class="stp">👥 ${fmt(st.p)} · ${pct}%</div>
+          <div class="stbar"><div class="stbar-fill" style="width:${pct}%"></div></div>
+        </div>
+        <div class="st-dot" style="background:${col||'#e2e8f0'}"></div>
+      </div>`;
+    }).join('')}</div>`;
+}
+
+function paintState(cid, idx, name, el) {
+  const key=`${cid}:${idx}`;
+  sColors[key]=pColor;
+  painted.add(key);
+  const c=DB[cid]; if(c) buildSt(c,cid);
+  stars(window.innerWidth-80, 200, 3);
+}
+
+function tab(t){
+  ['info','lm','st'].forEach(x=>{
+    document.getElementById({info:'ci',lm:'cl',st:'cs-tab'}[x]).style.display = x===t?'block':'none';
+    document.getElementById('t-'+x)?.classList.toggle('on', x===t);
+  });
+}
+
+// ═══════════════════════════════════
+//  COLOUR SWATCHES
+// ═══════════════════════════════════
+document.querySelectorAll('.cs').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.cs').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on'); pColor=b.dataset.c;
+  });
+});
+
+function setMode(m){
+  pMode=m;
+  document.getElementById('vc-country').classList.toggle('on', m==='country');
+  document.getElementById('vc-state').classList.toggle('on', m==='state');
+  if(m==='state' && curId) tab('st');
+}
+
+function clearAll(){
+  cColors={}; sColors={}; painted.clear();
+  g.selectAll('.land').each(function(d){ d3.select(this).attr('fill',defFill(pid(d.id))); });
+  if(curId&&DB[curId]) buildSt(DB[curId],curId);
+}
+
+function autoColor(repaint=true){
+  const m={'Africa':'#c5a870','Asia':'#9ab86a','Europe':'#6aafd5','North America':'#a070c0','South America':'#b0c070','Oceania':'#70c5b0','Caribbean':'#c0a060','Europe & Asia':'#6aafd5'};
+  g.selectAll('.land').each(function(d){
+    const id=pid(d.id); const c=DB[id];
+    if(!cColors[id]) d3.select(this).attr('fill', c?(m[c.cont]||'#5a6a7a'):'#3a4a5a');
+  });
+}
+
+// ═══════════════════════════════════
+//  SEARCH
+// ═══════════════════════════════════
+function doSearch(v){
+  if(!v||v.length<2) return;
+  const lo=v.toLowerCase();
+  const hit=Object.entries(DB).find(([,c])=>c.name.toLowerCase().includes(lo));
+  if(!hit) return;
+  const [id,c]=hit;
+  if(selId&&cEls[selId]) d3.select(cEls[selId]).classed('sel',false);
+  selId=id; curId=id;
+  if(cEls[id]) d3.select(cEls[id]).classed('sel',true);
+  visited.add(id); document.getElementById('vc').textContent=visited.size;
+  showCountry(c,id);
+  document.getElementById('srch').value=c.name;
+  // fly to centroid
+  const el=cEls[id];
+  if(el){
+    const cent=gp.centroid(d3.select(el).datum());
+    if(cent&&cent[0]){
+      const s=Math.max(d3.zoomTransform(svg.node()).k, 3);
+      svg.transition().duration(700).call(zb.transform,
+        d3.zoomIdentity.translate(W/2-s*cent[0], H/2-s*cent[1]).scale(s));
+    }
+  }
+}
+
+// ═══════════════════════════════════
+//  QUIZ
+// ═══════════════════════════════════
+function toggleQuiz(){
+  qMode=!qMode;
+  const btn=document.getElementById('qbtn');
+  if(qMode){
+    btn.textContent='🗺️ Exit Quiz'; btn.classList.add('quiz-on');
+    qScore={ok:0,bad:0};
+    document.getElementById('welcome').style.display='none';
+    document.getElementById('ci').style.display='none';
+    document.getElementById('cl').style.display='none';
+    document.getElementById('cs-tab').style.display='none';
+    document.getElementById('sbar').style.display='none';
+    document.getElementById('ptabs').style.display='none';
+    document.getElementById('pf').textContent='🧩';
+    document.getElementById('pn').textContent='Quiz Mode!';
+    document.getElementById('ps').textContent='Find the country on the map!';
+    document.getElementById('qpanel').style.display='flex';
+    nextQ();
+  } else {
+    btn.textContent='🧩 Quiz'; btn.classList.remove('quiz-on');
+    if(qTarget&&cEls[qTarget]) d3.select(cEls[qTarget]).classed('qglow',false);
+    document.getElementById('qpanel').style.display='none';
+    if(curId&&DB[curId]){
+      showCountry(DB[curId],curId);
+    } else {
+      document.getElementById('welcome').style.display='flex';
+      document.getElementById('pf').textContent='🌍';
+      document.getElementById('pn').textContent='GeoExplorer';
+      document.getElementById('ps').textContent='Tap any country!';
+    }
+  }
+}
+function nextQ(){
+  if(qTarget&&cEls[qTarget]) d3.select(cEls[qTarget]).classed('qglow',false);
+  const keys=Object.keys(DB);
+  qTarget=keys[Math.floor(Math.random()*keys.length)];
+  if(cEls[qTarget]) d3.select(cEls[qTarget]).classed('qglow',true);
+  const c=DB[qTarget];
+  const hints=[`It's in ${c.cont}`,`Capital: ${c.capital}`,`Population: ${fmt(c.pop)}`,`Currency: ${c.currency}`];
+  const h=hints[Math.floor(Math.random()*hints.length)];
+  document.getElementById('qpanel').innerHTML=`
+    <div class="qs">
+      <div class="qst ok"><div class="qn">✅ ${qScore.ok}</div><div class="ql">Correct</div></div>
+      <div class="qst bad"><div class="qn">❌ ${qScore.bad}</div><div class="ql">Wrong</div></div>
+    </div>
+    <div class="qbox">
+      <span class="qfl">${c.flag}</span>
+      <b class="qnm">${c.name}</b>
+      <div class="qhi">💡 ${h}</div>
+    </div>
+    <div id="qr" class="qres"></div>
+    <button class="qskip" onclick="nextQ()">⏭️ Skip</button>`;
+}
+function handleQuiz(id){
+  const r=document.getElementById('qr'); if(!r) return;
+  if(id===qTarget){
+    qScore.ok++;
+    r.textContent='🎉 Correct! Amazing!'; r.className='qres ok';
+    if(cEls[id]){ d3.select(cEls[id]).attr('fill','#86efac').classed('qglow',false); }
+    stars(window.innerWidth/2, window.innerHeight/2, 10);
+    setTimeout(nextQ,1600);
+  } else {
+    qScore.bad++;
+    const g2=DB[id];
+    r.textContent=`❌ That's ${g2?g2.name+' '+g2.flag:'unknown'}. Try again!`;
+    r.className='qres bad';
+    if(cEls[id]){
+      d3.select(cEls[id]).attr('fill','#fca5a5');
+      setTimeout(()=>d3.select(cEls[id]).attr('fill',cColors[id]||defFill(id)),700);
+    }
+  }
+}
+
+// ═══════════════════════════════════
+//  ZOOM / PAN
+// ═══════════════════════════════════
+function dz(f){ svg.transition().duration(260).call(zb.scaleBy,f); }
+function resetV(){ svg.transition().duration(480).call(zb.transform, d3.zoomIdentity); }
+function fly(lon, lat, sc){
+  const [x,y]=proj([lon,lat]);
+  const s=sc*Math.min(W,H)/310;
+  svg.transition().duration(680).call(zb.transform,
+    d3.zoomIdentity.translate(W/2-s*x, H/2-s*y).scale(s));
+}
+
+// ═══════════════════════════════════
+//  TOOLTIP (desktop only)
+// ═══════════════════════════════════
+const tip=document.getElementById('tip');
+function showTip(e,t){ tip.textContent=t; tip.style.display='block'; moveTip(e); }
+function moveTip(e){ tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY-34)+'px'; }
+function hideTip(){ tip.style.display='none'; }
+
+// ═══════════════════════════════════
+//  STARS
+// ═══════════════════════════════════
+function stars(cx,cy,n=4){
+  const e=['⭐','🌟','✨','🎉','💫','🌈'];
+  for(let i=0;i<n;i++){
+    const el=document.createElement('div');
+    el.className='star'; el.textContent=e[Math.floor(Math.random()*e.length)];
+    const a=Math.random()*Math.PI*2, d=50+Math.random()*70;
+    el.style.left=cx+'px'; el.style.top=cy+'px';
+    el.style.setProperty('--dx',(Math.cos(a)*d)+'px');
+    el.style.setProperty('--dy',(Math.sin(a)*d)+'px');
+    el.style.animationDuration=(.75+Math.random()*.35)+'s';
+    document.body.appendChild(el);
+    el.addEventListener('animationend',()=>el.remove());
+  }
+}
+
+// ═══════════════════════════════════
+//  RESIZE
+// ═══════════════════════════════════
+function onResize(){
+  W=mwrap.clientWidth; H=mwrap.clientHeight;
+  proj.scale(W/6.3).translate([W/2,H/2]);
+  g.selectAll('path').attr('d',gp);
+}
+window.addEventListener('resize', onResize);
+// Prevent pull-to-refresh killing the app
+document.body.addEventListener('touchmove', e => {
+  if(e.target.closest('.pb') || e.target.closest('#toolbar')) return;
+  // let D3 zoom handle map touches
+}, {passive:true});
+</script>
+</body>
+</html>
